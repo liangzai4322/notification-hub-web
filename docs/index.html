@@ -35,7 +35,8 @@
     button:focus-visible, input:focus-visible { outline: 3px solid rgba(36, 89, 169, .28); outline-offset: 2px; }
     .shell { width: min(920px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 56px; }
     .masthead { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 26px; }
-    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand { display: flex; align-items: center; gap: 12px; border: 0; padding: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+    .brand:hover strong { color: var(--signal); }
     .beacon { width: 14px; height: 38px; background: var(--signal); border-radius: 3px; box-shadow: 8px 0 0 #f2b3aa; }
     .brand strong { display: block; font: 800 25px/1 "Arial Narrow", "Microsoft YaHei", sans-serif; letter-spacing: -.04em; }
     .brand small { color: var(--muted); font: 11px/1.4 Consolas, monospace; letter-spacing: .12em; text-transform: uppercase; }
@@ -86,6 +87,11 @@
     .history-top { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
     .history-item h2 { margin: 3px 0 7px; font-size: 18px; line-height: 1.3; }
     .history-item p { margin: 0; color: var(--muted); }
+    .history-actions { display: flex; gap: 8px; margin-top: 14px; }
+    .history-action { border: 1px solid var(--line); border-radius: 9px; padding: 8px 13px; background: #fff; color: var(--ink); cursor: pointer; font-size: 13px; font-weight: 700; }
+    .history-action.confirm { color: var(--green); border-color: #acd8cb; background: var(--green-soft); }
+    .history-action.delete { color: var(--signal); border-color: #efb3ab; background: var(--signal-soft); }
+    .history-action:disabled { opacity: .5; cursor: wait; }
     .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 800; white-space: nowrap; background: #edf0f4; }
     .badge.level-1 { color: var(--signal); background: var(--signal-soft); }
     .badge.level-2 { color: var(--amber); background: var(--amber-soft); }
@@ -110,7 +116,7 @@
 <body>
   <main class="shell">
     <header class="masthead">
-      <div class="brand"><span class="beacon" aria-hidden="true"></span><div><strong>通知中枢</strong><small>Delivery control</small></div></div>
+      <button class="brand" id="allNotifications" type="button" aria-label="查看全部通知"><span class="beacon" aria-hidden="true"></span><span><strong>通知中枢</strong><small>点击查看全部通知</small></span></button>
       <time class="clock" id="clock"></time>
     </header>
 
@@ -151,7 +157,7 @@
   </main>
 
   <script>
-    const API = location.hostname === 'localhost' || location.hostname === '127.0.0.1' ? 'http://127.0.0.1:3219' : 'https://liangzai666.com/notify/api';
+    const API = location.hostname === 'localhost' || location.hostname.startsWith('127.') ? 'http://127.0.0.1:3219' : 'https://liangzai666.com/notify/api';
     const query = new URLSearchParams(location.search);
     const confirmationToken = query.get('token');
     let currentEvent = null;
@@ -228,9 +234,27 @@
       try {
         const data = await api('/v1/events?limit=100', { headers:{ authorization:`Bearer ${token}` } });
         show('history');
-        $('historyList').innerHTML = data.events.length ? data.events.map((event) => `<article class="history-item"><div class="history-top"><span class="badge level-${event.level}">LEVEL ${event.level}</span><span class="meta">${formatTime(event.createdAt)}</span></div><h2>${escapeHtml(event.title)}</h2><p>${escapeHtml(event.body)}</p><div class="history-top" style="margin-top:12px"><span class="meta">${escapeHtml(event.source)} / ${escapeHtml(event.eventKey)}</span><strong>${labels[event.status] || event.status}</strong></div></article>`).join('') : '<div class="panel empty">还没有通知记录。</div>';
+        $('historyList').innerHTML = data.events.length ? data.events.map((event) => `<article class="history-item" data-event-id="${escapeHtml(event.id)}"><div class="history-top"><span class="badge level-${event.level}">LEVEL ${event.level}</span><span class="meta">${formatTime(event.createdAt)}</span></div><h2>${escapeHtml(event.title)}</h2><p>${escapeHtml(event.body)}</p><div class="history-top" style="margin-top:12px"><span class="meta">${escapeHtml(event.source)} / ${escapeHtml(event.eventKey)}</span><strong>${labels[event.status] || event.status}</strong></div><div class="history-actions">${event.status === 'open' ? '<button class="history-action confirm" data-action="confirm">确认并停止提醒</button>' : ''}<button class="history-action delete" data-action="delete">删除</button></div></article>`).join('') : '<div class="panel empty">还没有通知记录。</div>';
       } catch { localStorage.removeItem('notificationHubSession'); show('login'); }
     }
+
+    $('allNotifications').addEventListener('click', () => loadHistory());
+    $('historyList').addEventListener('click', async (click) => {
+      const button = click.target.closest('[data-action]');
+      if (!button) return;
+      const item = button.closest('[data-event-id]');
+      const token = localStorage.getItem('notificationHubSession');
+      if (!item || !token) { show('login'); return; }
+      button.disabled = true;
+      try {
+        const action = button.dataset.action;
+        await api(`/v1/events/${encodeURIComponent(item.dataset.eventId)}${action === 'confirm' ? '/confirm' : ''}`, { method: action === 'confirm' ? 'POST' : 'DELETE', headers:{ authorization:`Bearer ${token}` } });
+        await loadHistory();
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = error.status === 401 ? '请重新登录' : '操作失败，重试';
+      }
+    });
 
     $('logout').addEventListener('click', () => { localStorage.removeItem('notificationHubSession'); show('login'); });
     function escapeHtml(value) { const node = document.createElement('span'); node.textContent = value; return node.innerHTML; }
