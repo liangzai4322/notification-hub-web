@@ -82,6 +82,9 @@
     .error { color: var(--signal); margin-top: 12px; font-size: 13px; }
     .history-head { display: flex; justify-content: space-between; gap: 18px; align-items: end; margin-bottom: 18px; }
     .history-head h1 { font-size: 34px; }
+    .history-tools { display: flex; align-items: center; gap: 8px; }
+    .filter-summary { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+    .filter-clear { border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px; background: #fff; color: var(--ink); cursor: pointer; font-weight: 700; }
     .history-list { display: grid; gap: 11px; }
     .history-item { padding: 18px 20px; background: #fff; border: 1px solid var(--line); border-radius: 14px; }
     .history-top { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
@@ -92,6 +95,10 @@
     .history-action.confirm { color: var(--green); border-color: #acd8cb; background: var(--green-soft); }
     .history-action.delete { color: var(--signal); border-color: #efb3ab; background: var(--signal-soft); }
     .history-action:disabled { opacity: .5; cursor: wait; }
+    .history-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 12px; }
+    .filter-tag { border: 0; border-radius: 999px; padding: 5px 10px; color: var(--blue); background: #edf4ff; cursor: pointer; font-size: 12px; font-weight: 750; }
+    .filter-tag.time { color: var(--amber); background: var(--amber-soft); }
+    .filter-tag:hover { box-shadow: inset 0 0 0 1px currentColor; }
     .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 800; white-space: nowrap; background: #edf0f4; }
     .badge.level-1 { color: var(--signal); background: var(--signal-soft); }
     .badge.level-2 { color: var(--amber); background: var(--amber-soft); }
@@ -109,6 +116,7 @@
       .countdown { text-align: left; margin-left: 23px; }
       .rail { grid-template-columns: 1fr; }
       .history-head { align-items: start; }
+      .history-head { flex-wrap: wrap; }
       .history-item { padding: 16px; }
     }
   </style>
@@ -151,17 +159,19 @@
     </section>
 
     <section id="history" class="hidden">
-      <div class="history-head"><div><p class="eyebrow">Delivery archive</p><h1>通知记录</h1></div><button class="subtle-button" id="logout">退出</button></div>
+      <div class="history-head"><div><p class="eyebrow">Delivery archive</p><h1 id="historyTitle">通知记录</h1><p class="filter-summary hidden" id="filterSummary"></p></div><div class="history-tools"><button class="filter-clear hidden" id="clearFilter">查看全部</button><button class="subtle-button" id="logout">退出</button></div></div>
       <div class="history-list" id="historyList"></div>
     </section>
   </main>
 
   <script>
-    const API = location.hostname === 'localhost' || location.hostname.startsWith('127.') ? 'http://127.0.0.1:3219' : 'https://liangzai666.com/notify/api';
+    const API = location.hostname === 'localhost' || location.hostname.startsWith('127.') || location.hostname === '::1' || location.hostname === '[::1]' ? 'http://127.0.0.1:3219' : 'https://liangzai666.com/notify/api';
     const query = new URLSearchParams(location.search);
     const confirmationToken = query.get('token');
     let currentEvent = null;
     let countdownTimer = null;
+    let allEvents = [];
+    let activeFilter = null;
     const $ = (id) => document.getElementById(id);
     const labels = { open: '等待确认', confirmed: '已确认收到', lost: '通知遗失', informational: '无需确认' };
     const channelLabels = { wecom: '企业微信', email: '邮件', serverchan: 'Server酱' };
@@ -169,6 +179,13 @@
 
     function show(id) { ['loading','notice','login','history'].forEach((name) => $(name).classList.toggle('hidden', name !== id)); }
     function formatTime(value) { return value ? new Intl.DateTimeFormat('zh-CN', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false }).format(new Date(value)) : '—'; }
+    function timeCategory(value) {
+      const date = new Date(value); const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const eventDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const days = Math.round((start - eventDay) / 86400000);
+      return days <= 0 ? '今天' : days === 1 ? '昨天' : days === 2 ? '两天前' : days <= 7 ? '近一周' : '更早';
+    }
     function updateClock() { $('clock').textContent = new Intl.DateTimeFormat('zh-CN', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false }).format(new Date()); }
     setInterval(updateClock, 1000); updateClock();
 
@@ -228,18 +245,32 @@
       catch (error) { $('loginError').textContent = error.status === 429 ? '尝试次数过多，请15分钟后再试。' : '口令不正确。'; }
     });
 
-    async function loadHistory() {
+    function renderHistory() {
+      const events = activeFilter ? allEvents.filter((event) => activeFilter.type === 'source' ? event.source === activeFilter.value : timeCategory(event.createdAt) === activeFilter.value) : allEvents;
+      $('historyTitle').textContent = activeFilter ? activeFilter.value : '通知记录';
+      $('filterSummary').textContent = activeFilter ? `${activeFilter.type === 'source' ? '来源' : '时间'}分类 · ${events.length} 条通知` : '';
+      $('filterSummary').classList.toggle('hidden', !activeFilter);
+      $('clearFilter').classList.toggle('hidden', !activeFilter);
+      $('historyList').innerHTML = events.length ? events.map((event) => `<article class="history-item" data-event-id="${escapeHtml(event.id)}"><div class="history-top"><span class="badge level-${event.level}">LEVEL ${event.level}</span><span class="meta">${formatTime(event.createdAt)}</span></div><h2>${escapeHtml(event.title)}</h2><p>${escapeHtml(event.body)}</p><div class="history-tags"><button class="filter-tag" data-filter="source" data-value="${encodeURIComponent(event.source)}">${escapeHtml(event.source)}</button><button class="filter-tag time" data-filter="time" data-value="${timeCategory(event.createdAt)}">${timeCategory(event.createdAt)}</button><span class="meta">${escapeHtml(event.eventKey)}</span></div><div class="history-top" style="margin-top:12px"><span></span><strong>${labels[event.status] || event.status}</strong></div><div class="history-actions">${event.status === 'open' ? '<button class="history-action confirm" data-action="confirm">确认并停止提醒</button>' : ''}<button class="history-action delete" data-action="delete">删除</button></div></article>`).join('') : '<div class="panel empty">这个分类还没有通知。</div>';
+    }
+
+    async function loadHistory(resetFilter = false) {
       const token = localStorage.getItem('notificationHubSession');
       if (!token) { show('login'); return; }
       try {
-        const data = await api('/v1/events?limit=100', { headers:{ authorization:`Bearer ${token}` } });
+        const data = await api('/v1/events?limit=1000', { headers:{ authorization:`Bearer ${token}` } });
+        allEvents = data.events;
+        if (resetFilter) activeFilter = null;
         show('history');
-        $('historyList').innerHTML = data.events.length ? data.events.map((event) => `<article class="history-item" data-event-id="${escapeHtml(event.id)}"><div class="history-top"><span class="badge level-${event.level}">LEVEL ${event.level}</span><span class="meta">${formatTime(event.createdAt)}</span></div><h2>${escapeHtml(event.title)}</h2><p>${escapeHtml(event.body)}</p><div class="history-top" style="margin-top:12px"><span class="meta">${escapeHtml(event.source)} / ${escapeHtml(event.eventKey)}</span><strong>${labels[event.status] || event.status}</strong></div><div class="history-actions">${event.status === 'open' ? '<button class="history-action confirm" data-action="confirm">确认并停止提醒</button>' : ''}<button class="history-action delete" data-action="delete">删除</button></div></article>`).join('') : '<div class="panel empty">还没有通知记录。</div>';
+        renderHistory();
       } catch { localStorage.removeItem('notificationHubSession'); show('login'); }
     }
 
-    $('allNotifications').addEventListener('click', () => loadHistory());
+    $('allNotifications').addEventListener('click', () => loadHistory(true));
+    $('clearFilter').addEventListener('click', () => { activeFilter = null; renderHistory(); });
     $('historyList').addEventListener('click', async (click) => {
+      const tag = click.target.closest('[data-filter]');
+      if (tag) { activeFilter = { type: tag.dataset.filter, value: tag.dataset.filter === 'source' ? decodeURIComponent(tag.dataset.value) : tag.dataset.value }; renderHistory(); return; }
       const button = click.target.closest('[data-action]');
       if (!button) return;
       const item = button.closest('[data-event-id]');
