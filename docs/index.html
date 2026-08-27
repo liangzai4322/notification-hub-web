@@ -86,6 +86,12 @@
     .filter-summary { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
     .filter-clear { border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px; background: #fff; color: var(--ink); cursor: pointer; font-weight: 700; }
     .history-list { display: grid; gap: 11px; }
+    .time-group { border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.62); overflow: hidden; }
+    .time-group summary { display: flex; justify-content: space-between; padding: 14px 18px; cursor: pointer; font-weight: 800; list-style: none; }
+    .time-group summary::-webkit-details-marker { display: none; }
+    .time-group summary::after { content: '＋'; color: var(--muted); }
+    .time-group[open] summary::after { content: '−'; }
+    .time-group-list { display: grid; gap: 10px; padding: 0 10px 10px; }
     .history-item { padding: 18px 20px; background: #fff; border: 1px solid var(--line); border-radius: 14px; }
     .history-top { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
     .history-item h2 { margin: 3px 0 7px; font-size: 18px; line-height: 1.3; }
@@ -245,13 +251,20 @@
       catch (error) { $('loginError').textContent = error.status === 429 ? '尝试次数过多，请15分钟后再试。' : '口令不正确。'; }
     });
 
+    function eventCard(event) {
+      return `<article class="history-item" data-event-id="${escapeHtml(event.id)}"><div class="history-top"><span class="badge level-${event.level}">LEVEL ${event.level}</span><span class="meta">${formatTime(event.createdAt)}</span></div><h2>${escapeHtml(event.title)}</h2><p>${escapeHtml(event.body)}</p><div class="history-tags"><button class="filter-tag" data-filter="source" data-value="${encodeURIComponent(event.source)}">${escapeHtml(event.source)}</button><button class="filter-tag time" data-filter="time" data-value="${timeCategory(event.createdAt)}">${timeCategory(event.createdAt)}</button><span class="meta">${escapeHtml(event.eventKey)}</span></div><div class="history-top" style="margin-top:12px"><span></span><strong>${labels[event.status] || event.status}</strong></div><div class="history-actions">${event.status === 'open' ? '<button class="history-action confirm" data-action="confirm">确认并停止提醒</button>' : ''}<button class="history-action delete" data-action="delete">删除</button></div></article>`;
+    }
+
     function renderHistory() {
-      const events = activeFilter ? allEvents.filter((event) => activeFilter.type === 'source' ? event.source === activeFilter.value : timeCategory(event.createdAt) === activeFilter.value) : allEvents;
+      const events = (activeFilter ? allEvents.filter((event) => activeFilter.type === 'source' ? event.source === activeFilter.value : timeCategory(event.createdAt) === activeFilter.value) : allEvents).slice().sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
       $('historyTitle').textContent = activeFilter ? activeFilter.value : '通知记录';
       $('filterSummary').textContent = activeFilter ? `${activeFilter.type === 'source' ? '来源' : '时间'}分类 · ${events.length} 条通知` : '';
       $('filterSummary').classList.toggle('hidden', !activeFilter);
       $('clearFilter').classList.toggle('hidden', !activeFilter);
-      $('historyList').innerHTML = events.length ? events.map((event) => `<article class="history-item" data-event-id="${escapeHtml(event.id)}"><div class="history-top"><span class="badge level-${event.level}">LEVEL ${event.level}</span><span class="meta">${formatTime(event.createdAt)}</span></div><h2>${escapeHtml(event.title)}</h2><p>${escapeHtml(event.body)}</p><div class="history-tags"><button class="filter-tag" data-filter="source" data-value="${encodeURIComponent(event.source)}">${escapeHtml(event.source)}</button><button class="filter-tag time" data-filter="time" data-value="${timeCategory(event.createdAt)}">${timeCategory(event.createdAt)}</button><span class="meta">${escapeHtml(event.eventKey)}</span></div><div class="history-top" style="margin-top:12px"><span></span><strong>${labels[event.status] || event.status}</strong></div><div class="history-actions">${event.status === 'open' ? '<button class="history-action confirm" data-action="confirm">确认并停止提醒</button>' : ''}<button class="history-action delete" data-action="delete">删除</button></div></article>`).join('') : '<div class="panel empty">这个分类还没有通知。</div>';
+      if (!events.length) { $('historyList').innerHTML = '<div class="panel empty">这个分类还没有通知。</div>'; return; }
+      if (activeFilter?.type !== 'source') { $('historyList').innerHTML = events.map(eventCard).join(''); return; }
+      const groups = events.reduce((map, event) => map.set(timeCategory(event.createdAt), [...(map.get(timeCategory(event.createdAt)) || []), event]), new Map());
+      $('historyList').innerHTML = [...groups].map(([name, rows], index) => `<details class="time-group" ${index === 0 ? 'open' : ''}><summary><span>${name}</span><small>${rows.length} 条</small></summary><div class="time-group-list">${rows.map(eventCard).join('')}</div></details>`).join('');
     }
 
     async function loadHistory(resetFilter = false) {
