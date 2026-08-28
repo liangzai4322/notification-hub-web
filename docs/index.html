@@ -104,6 +104,7 @@
     .history-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 12px; }
     .filter-tag { border: 0; border-radius: 999px; padding: 5px 10px; color: var(--blue); background: #edf4ff; cursor: pointer; font-size: 12px; font-weight: 750; }
     .filter-tag.time { color: var(--amber); background: var(--amber-soft); }
+    .device-tag { border-radius: 999px; padding: 5px 10px; color: var(--green); background: var(--green-soft); font-size: 12px; font-weight: 750; }
     .filter-tag:hover { box-shadow: inset 0 0 0 1px currentColor; }
     .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 800; white-space: nowrap; background: #edf0f4; }
     .badge.level-1 { color: var(--signal); background: var(--signal-soft); }
@@ -252,7 +253,7 @@
     });
 
     function eventCard(event) {
-      return `<article class="history-item" data-event-id="${escapeHtml(event.id)}"><div class="history-top"><span class="badge level-${event.level}">LEVEL ${event.level}</span><span class="meta">${formatTime(event.createdAt)}</span></div><h2>${escapeHtml(event.title)}</h2><p>${escapeHtml(event.body)}</p><div class="history-tags"><button class="filter-tag" data-filter="source" data-value="${encodeURIComponent(event.source)}">${escapeHtml(event.source)}</button><button class="filter-tag time" data-filter="time" data-value="${timeCategory(event.createdAt)}">${timeCategory(event.createdAt)}</button><span class="meta">${escapeHtml(event.eventKey)}</span></div><div class="history-top" style="margin-top:12px"><span></span><strong>${labels[event.status] || event.status}</strong></div><div class="history-actions">${event.status === 'open' ? '<button class="history-action confirm" data-action="confirm">确认并停止提醒</button>' : ''}<button class="history-action delete" data-action="delete">删除</button></div></article>`;
+      return `<article class="history-item" data-event-id="${escapeHtml(event.id)}"><div class="history-top"><span class="badge level-${event.level}">LEVEL ${event.level}</span><span class="meta">${formatTime(event.createdAt)}</span></div><h2>${escapeHtml(event.title)}</h2><p>${escapeHtml(event.body)}</p><div class="history-tags"><button class="filter-tag" data-filter="source" data-value="${encodeURIComponent(event.source)}">${escapeHtml(event.source)}</button><span class="device-tag">发送设备：${escapeHtml(event.device || '未知设备')}</span><button class="filter-tag time" data-filter="time" data-value="${timeCategory(event.createdAt)}">${timeCategory(event.createdAt)}</button><span class="meta">${escapeHtml(event.eventKey)}</span></div><div class="history-top" style="margin-top:12px"><span></span><strong>${labels[event.status] || event.status}</strong></div><div class="history-actions">${event.status === 'open' ? '<button class="history-action confirm" data-action="confirm">确认并停止提醒</button>' : ''}<button class="history-action delete" data-action="delete">删除</button></div></article>`;
     }
 
     function renderHistory() {
