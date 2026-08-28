@@ -105,6 +105,14 @@
     .filter-tag { border: 0; border-radius: 999px; padding: 5px 10px; color: var(--blue); background: #edf4ff; cursor: pointer; font-size: 12px; font-weight: 750; }
     .filter-tag.time { color: var(--amber); background: var(--amber-soft); }
     .device-tag { border-radius: 999px; padding: 5px 10px; color: var(--green); background: var(--green-soft); font-size: 12px; font-weight: 750; }
+    .bug-fix { margin-top: 14px; padding: 14px; border: 1px solid #c9d7ef; border-radius: 11px; background: #f5f8ff; }
+    .bug-fix strong { display: block; margin-bottom: 7px; }
+    .bug-fix p { color: var(--ink); white-space: pre-wrap; }
+    .bug-files { margin: 9px 0 0; color: var(--muted); font: 11px Consolas, monospace; }
+    .bug-result { margin-top: 9px; color: var(--muted); font-size: 12px; white-space: pre-wrap; }
+    .bug-link { color: var(--blue); font-weight: 750; }
+    .history-action.approve { color: #fff; border-color: var(--blue); background: var(--blue); }
+    .history-action.rollback { color: var(--amber); border-color: #e3c985; background: var(--amber-soft); }
     .filter-tag:hover { box-shadow: inset 0 0 0 1px currentColor; }
     .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 800; white-space: nowrap; background: #edf0f4; }
     .badge.level-1 { color: var(--signal); background: var(--signal-soft); }
@@ -253,7 +261,10 @@
     });
 
     function eventCard(event) {
-      return `<article class="history-item" data-event-id="${escapeHtml(event.id)}"><div class="history-top"><span class="badge level-${event.level}">LEVEL ${event.level}</span><span class="meta">${formatTime(event.createdAt)}</span></div><h2>${escapeHtml(event.title)}</h2><p>${escapeHtml(event.body)}</p><div class="history-tags"><button class="filter-tag" data-filter="source" data-value="${encodeURIComponent(event.source)}">${escapeHtml(event.source)}</button><span class="device-tag">发送设备：${escapeHtml(event.device || '未知设备')}</span><button class="filter-tag time" data-filter="time" data-value="${timeCategory(event.createdAt)}">${timeCategory(event.createdAt)}</button><span class="meta">${escapeHtml(event.eventKey)}</span></div><div class="history-top" style="margin-top:12px"><span></span><strong>${labels[event.status] || event.status}</strong></div><div class="history-actions">${event.status === 'open' ? '<button class="history-action confirm" data-action="confirm">确认并停止提醒</button>' : ''}<button class="history-action delete" data-action="delete">删除</button></div></article>`;
+      const bug = event.bugFix;
+      const bugLabels = { pending_approval:'等待审批', approved:'已批准，等待原电脑上线', running:'正在自动修复', succeeded:'修复成功', failed:'修复失败', timed_out:'执行超时', expired:'审批已过期', rollback_requested:'等待原电脑回滚', rolled_back:'已回滚', rollback_failed:'回滚失败' };
+      const bugPanel = bug ? `<div class="bug-fix"><strong>Bug修复申请 · ${bugLabels[bug.status] || bug.status}</strong><p>${escapeHtml(bug.plan)}</p><div class="bug-files">影响文件：${bug.impactFiles.length ? bug.impactFiles.map(escapeHtml).join('、') : '由执行任务确认'}</div>${bug.resultSummary ? `<div class="bug-result">${escapeHtml(bug.resultSummary)}</div>` : ''}${bug.taskUrl ? `<a class="bug-link" href="${escapeHtml(bug.taskUrl)}">查看Codex任务</a>` : ''}${bug.prUrl ? ` · <a class="bug-link" href="${escapeHtml(bug.prUrl)}" target="_blank" rel="noopener">查看PR</a>` : ''}</div>` : '';
+      return `<article class="history-item" data-event-id="${escapeHtml(event.id)}"><div class="history-top"><span class="badge level-${event.level}">LEVEL ${event.level}</span><span class="meta">${formatTime(event.createdAt)}</span></div><h2>${escapeHtml(event.title)}</h2><p>${escapeHtml(event.body)}</p><div class="history-tags"><button class="filter-tag" data-filter="source" data-value="${encodeURIComponent(event.source)}">${escapeHtml(event.source)}</button><span class="device-tag">发送设备：${escapeHtml(event.device || '未知设备')}</span><button class="filter-tag time" data-filter="time" data-value="${timeCategory(event.createdAt)}">${timeCategory(event.createdAt)}</button><span class="meta">${escapeHtml(event.eventKey)}</span></div>${bugPanel}<div class="history-top" style="margin-top:12px"><span></span><strong>${labels[event.status] || event.status}</strong></div><div class="history-actions">${bug?.status === 'pending_approval' ? '<button class="history-action approve" data-action="bug-approve">同意自动修复</button>' : ''}${bug?.status === 'succeeded' && bug.backupPath ? '<button class="history-action rollback" data-action="bug-rollback" data-job-id="'+escapeHtml(bug.id)+'">一键回滚</button>' : ''}${event.status === 'open' ? '<button class="history-action confirm" data-action="confirm">确认并停止提醒</button>' : ''}<button class="history-action delete" data-action="delete">删除</button></div></article>`;
     }
 
     function renderHistory() {
@@ -293,7 +304,8 @@
       button.disabled = true;
       try {
         const action = button.dataset.action;
-        await api(`/v1/events/${encodeURIComponent(item.dataset.eventId)}${action === 'confirm' ? '/confirm' : ''}`, { method: action === 'confirm' ? 'POST' : 'DELETE', headers:{ authorization:`Bearer ${token}` } });
+        const path = action === 'bug-approve' ? `/v1/events/${encodeURIComponent(item.dataset.eventId)}/bug-fix/approve` : action === 'bug-rollback' ? `/v1/bug-fixes/${encodeURIComponent(button.dataset.jobId)}/rollback` : `/v1/events/${encodeURIComponent(item.dataset.eventId)}${action === 'confirm' ? '/confirm' : ''}`;
+        await api(path, { method: ['confirm','bug-approve','bug-rollback'].includes(action) ? 'POST' : 'DELETE', headers:{ authorization:`Bearer ${token}` } });
         await loadHistory();
       } catch (error) {
         button.disabled = false;
