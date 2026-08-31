@@ -331,7 +331,7 @@
         if (!viewingTrash) {
           const nextIds = new Set(data.events.map((event) => event.id));
           if (knownEventIds && poll) data.events.filter((event) => !knownEventIds.has(event.id) && event.status === 'open').reverse().forEach((event) => event.level === 1 ? startCall(event) : event.level === 2 ? playLevelTwoSound() : null);
-          knownEventIds = nextIds;
+          if (knownEventIds) nextIds.forEach((id) => knownEventIds.add(id)); else knownEventIds = nextIds;
         }
         allEvents = data.events;
         if (resetFilter) activeFilter = null;
