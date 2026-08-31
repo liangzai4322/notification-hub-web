@@ -182,7 +182,7 @@
     </section>
 
     <section id="history" class="hidden">
-      <div class="history-head"><div><p class="eyebrow">Delivery archive</p><h1 id="historyTitle">通知记录</h1><p class="filter-summary hidden" id="filterSummary"></p></div><div class="history-tools"><button class="filter-clear hidden" id="clearFilter">查看全部</button><button class="filter-clear" id="trashButton">回收站</button><button class="subtle-button" id="logout">退出</button></div></div>
+      <div class="history-head"><div><p class="eyebrow">Delivery archive</p><h1 id="historyTitle">通知记录</h1><p class="filter-summary hidden" id="filterSummary"></p></div><div class="history-tools"><button class="filter-clear hidden" id="clearFilter">查看全部</button><button class="filter-clear" id="alertToggle" aria-pressed="true">提示：开</button><button class="filter-clear" id="trashButton">回收站</button><button class="subtle-button" id="logout">退出</button></div></div>
       <div class="history-list" id="historyList"></div>
     </section>
   </main>
@@ -204,6 +204,7 @@
     let audioContext = null;
     let callMusicTimer = null;
     let callEventId = null;
+    let alertEnabled = localStorage.getItem('notificationHubAlerts') !== 'off';
     const $ = (id) => document.getElementById(id);
     const labels = { open: '等待确认', confirmed: '已确认收到', lost: '通知遗失', informational: '无需确认' };
     const channelLabels = { wecom: '企业微信', email: '邮件', serverchan: 'Server酱' };
@@ -246,6 +247,9 @@
       if ('speechSynthesis' in window) { const voice = new SpeechSynthesisUtterance(`紧急通知，来自${event.source}。${event.title}`); voice.lang = 'zh-CN'; voice.rate = .9; speechSynthesis.speak(voice); }
     }
     $('hangup').addEventListener('click', stopCall);
+    function renderAlertToggle() { $('alertToggle').textContent = `提示：${alertEnabled ? '开' : '关'}`; $('alertToggle').setAttribute('aria-pressed', String(alertEnabled)); }
+    $('alertToggle').addEventListener('click', () => { alertEnabled = !alertEnabled; localStorage.setItem('notificationHubAlerts', alertEnabled ? 'on' : 'off'); if (!alertEnabled) stopCall(); else unlockAudio(); renderAlertToggle(); });
+    renderAlertToggle();
 
     async function api(path, options = {}) {
       const response = await fetch(API + path, { ...options, headers: { 'content-type':'application/json', ...options.headers } });
@@ -330,7 +334,7 @@
         const data = await api(`${viewingTrash ? '/v1/trash' : '/v1/events'}?limit=1000`, { headers:{ authorization:`Bearer ${token}` } });
         if (!viewingTrash) {
           const nextIds = new Set(data.events.map((event) => event.id));
-          if (knownEventIds && poll) data.events.filter((event) => !knownEventIds.has(event.id) && event.status === 'open').reverse().forEach((event) => event.level === 1 ? startCall(event) : event.level === 2 ? playLevelTwoSound() : null);
+          if (knownEventIds && poll && alertEnabled) data.events.filter((event) => !knownEventIds.has(event.id) && event.status === 'open').reverse().forEach((event) => event.level === 1 ? startCall(event) : event.level === 2 ? playLevelTwoSound() : null);
           if (knownEventIds) nextIds.forEach((id) => knownEventIds.add(id)); else knownEventIds = nextIds;
         }
         allEvents = data.events;
