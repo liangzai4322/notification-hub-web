@@ -100,6 +100,7 @@
     .history-action { border: 1px solid var(--line); border-radius: 9px; padding: 8px 13px; background: #fff; color: var(--ink); cursor: pointer; font-size: 13px; font-weight: 700; }
     .history-action.confirm { color: var(--green); border-color: #acd8cb; background: var(--green-soft); }
     .history-action.delete { color: var(--signal); border-color: #efb3ab; background: var(--signal-soft); }
+    .history-action.restore { color: var(--green); border-color: #acd8cb; background: var(--green-soft); }
     .history-action:disabled { opacity: .5; cursor: wait; }
     .history-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 12px; }
     .filter-tag { border: 0; border-radius: 999px; padding: 5px 10px; color: var(--blue); background: #edf4ff; cursor: pointer; font-size: 12px; font-weight: 750; }
@@ -121,7 +122,14 @@
     .meta { color: var(--muted); font: 11px Consolas, monospace; }
     .empty { padding: 60px 24px; text-align: center; color: var(--muted); }
     .hidden { display: none !important; }
+    .call-overlay { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 24px; background: rgba(15,23,36,.72); backdrop-filter: blur(8px); }
+    .call-card { width: min(420px, 100%); padding: 34px 28px; color: #fff; text-align: center; background: #18212f; border: 1px solid rgba(255,255,255,.2); border-radius: 24px; box-shadow: 0 24px 80px rgba(0,0,0,.35); }
+    .call-pulse { width: 76px; height: 76px; margin: 0 auto 20px; display: grid; place-items: center; border-radius: 50%; background: var(--signal); font-size: 34px; animation: callPulse 1.2s ease-in-out infinite; }
+    .call-card h2 { margin: 6px 0; font-size: 26px; }
+    .call-card p { margin: 0 0 24px; color: #cfd6e2; }
+    .hangup { width: 72px; height: 72px; border: 0; border-radius: 50%; color: #fff; background: var(--signal); cursor: pointer; font-size: 26px; transform: rotate(135deg); }
     @keyframes pulse { 50% { box-shadow: 0 0 0 10px rgba(199,39,26,.08); } }
+    @keyframes callPulse { 50% { transform: scale(1.07); box-shadow: 0 0 0 18px rgba(199,39,26,.18); } }
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
     @media (max-width: 620px) {
       .shell { width: min(100% - 20px, 920px); padding-top: 18px; }
@@ -174,10 +182,14 @@
     </section>
 
     <section id="history" class="hidden">
-      <div class="history-head"><div><p class="eyebrow">Delivery archive</p><h1 id="historyTitle">通知记录</h1><p class="filter-summary hidden" id="filterSummary"></p></div><div class="history-tools"><button class="filter-clear hidden" id="clearFilter">查看全部</button><button class="subtle-button" id="logout">退出</button></div></div>
+      <div class="history-head"><div><p class="eyebrow">Delivery archive</p><h1 id="historyTitle">通知记录</h1><p class="filter-summary hidden" id="filterSummary"></p></div><div class="history-tools"><button class="filter-clear hidden" id="clearFilter">查看全部</button><button class="filter-clear" id="trashButton">回收站</button><button class="subtle-button" id="logout">退出</button></div></div>
       <div class="history-list" id="historyList"></div>
     </section>
   </main>
+
+  <div class="call-overlay hidden" id="callOverlay" role="dialog" aria-modal="true" aria-labelledby="callTitle">
+    <div class="call-card"><div class="call-pulse">🔴</div><p class="eyebrow">紧急语音提醒</p><h2 id="callTitle"></h2><p id="callSource"></p><button class="hangup" id="hangup" type="button" aria-label="挂断">☎</button></div>
+  </div>
 
   <script>
     const API = location.hostname === 'localhost' || location.hostname.startsWith('127.') || location.hostname === '::1' || location.hostname === '[::1]' ? 'http://127.0.0.1:3219' : 'https://liangzai666.com/notify/api';
@@ -187,6 +199,11 @@
     let countdownTimer = null;
     let allEvents = [];
     let activeFilter = null;
+    let viewingTrash = false;
+    let knownEventIds = null;
+    let audioContext = null;
+    let callMusicTimer = null;
+    let callEventId = null;
     const $ = (id) => document.getElementById(id);
     const labels = { open: '等待确认', confirmed: '已确认收到', lost: '通知遗失', informational: '无需确认' };
     const channelLabels = { wecom: '企业微信', email: '邮件', serverchan: 'Server酱' };
@@ -203,6 +220,32 @@
     }
     function updateClock() { $('clock').textContent = new Intl.DateTimeFormat('zh-CN', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false }).format(new Date()); }
     setInterval(updateClock, 1000); updateClock();
+
+    function unlockAudio() {
+      audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
+      if (audioContext.state === 'suspended') audioContext.resume();
+    }
+    document.addEventListener('pointerdown', unlockAudio, { passive:true });
+
+    function tone(frequency, duration = .18, volume = .08, delay = 0) {
+      unlockAudio();
+      const start = audioContext.currentTime + delay;
+      const oscillator = audioContext.createOscillator(); const gain = audioContext.createGain();
+      oscillator.frequency.value = frequency; oscillator.type = 'sine'; gain.gain.setValueAtTime(volume, start); gain.gain.exponentialRampToValueAtTime(.001, start + duration);
+      oscillator.connect(gain).connect(audioContext.destination); oscillator.start(start); oscillator.stop(start + duration);
+    }
+    function playLevelTwoSound() { tone(740, .16); tone(980, .2, .07, .18); }
+    function stopCall() {
+      clearInterval(callMusicTimer); callMusicTimer = null; callEventId = null;
+      window.speechSynthesis?.cancel(); $('callOverlay').classList.add('hidden');
+    }
+    function startCall(event) {
+      stopCall(); callEventId = event.id; $('callTitle').textContent = event.title; $('callSource').textContent = `来自 ${event.source}`; $('callOverlay').classList.remove('hidden');
+      const music = () => { tone(440, .28, .055); tone(554, .28, .045, .32); tone(659, .35, .045, .64); };
+      music(); callMusicTimer = setInterval(music, 1800);
+      if ('speechSynthesis' in window) { const voice = new SpeechSynthesisUtterance(`紧急通知，来自${event.source}。${event.title}`); voice.lang = 'zh-CN'; voice.rate = .9; speechSynthesis.speak(voice); }
+    }
+    $('hangup').addEventListener('click', stopCall);
 
     async function api(path, options = {}) {
       const response = await fetch(API + path, { ...options, headers: { 'content-type':'application/json', ...options.headers } });
@@ -260,30 +303,36 @@
       catch (error) { $('loginError').textContent = error.status === 429 ? '尝试次数过多，请15分钟后再试。' : '口令不正确。'; }
     });
 
-    function eventCard(event) {
+    function eventCard(event, trash = false) {
       const bug = event.bugFix;
       const bugLabels = { pending_approval:'等待审批', approved:'已批准，等待原电脑上线', running:'正在自动修复', succeeded:'修复成功', failed:'修复失败', timed_out:'执行超时', expired:'审批已过期', rollback_requested:'等待原电脑回滚', rolled_back:'已回滚', rollback_failed:'回滚失败' };
       const bugPanel = bug ? `<div class="bug-fix"><strong>Bug修复申请 · ${bugLabels[bug.status] || bug.status}</strong><p>${escapeHtml(bug.plan)}</p><div class="bug-files">影响文件：${bug.impactFiles.length ? bug.impactFiles.map(escapeHtml).join('、') : '由执行任务确认'}</div>${bug.resultSummary ? `<div class="bug-result">${escapeHtml(bug.resultSummary)}</div>` : ''}${bug.taskUrl ? `<a class="bug-link" href="${escapeHtml(bug.taskUrl)}">查看Codex任务</a>` : ''}${bug.prUrl ? ` · <a class="bug-link" href="${escapeHtml(bug.prUrl)}" target="_blank" rel="noopener">查看PR</a>` : ''}</div>` : '';
-      return `<article class="history-item" data-event-id="${escapeHtml(event.id)}"><div class="history-top"><span class="badge level-${event.level}">LEVEL ${event.level}</span><span class="meta">${formatTime(event.createdAt)}</span></div><h2>${escapeHtml(event.title)}</h2><p>${escapeHtml(event.body)}</p><div class="history-tags"><button class="filter-tag" data-filter="source" data-value="${encodeURIComponent(event.source)}">${escapeHtml(event.source)}</button><span class="device-tag">发送设备：${escapeHtml(event.device || '未知设备')}</span><button class="filter-tag time" data-filter="time" data-value="${timeCategory(event.createdAt)}">${timeCategory(event.createdAt)}</button><span class="meta">${escapeHtml(event.eventKey)}</span></div>${bugPanel}<div class="history-top" style="margin-top:12px"><span></span><strong>${labels[event.status] || event.status}</strong></div><div class="history-actions">${bug?.status === 'pending_approval' ? '<button class="history-action approve" data-action="bug-approve">同意自动修复</button>' : ''}${bug?.status === 'succeeded' && bug.backupPath ? '<button class="history-action rollback" data-action="bug-rollback" data-job-id="'+escapeHtml(bug.id)+'">一键回滚</button>' : ''}${event.status === 'open' ? '<button class="history-action confirm" data-action="confirm">确认并停止提醒</button>' : ''}<button class="history-action delete" data-action="delete">删除</button></div></article>`;
+      const actions = trash ? '<button class="history-action restore" data-action="restore">恢复</button><button class="history-action delete" data-action="purge">彻底删除</button>' : `${bug?.status === 'pending_approval' ? '<button class="history-action approve" data-action="bug-approve">同意自动修复</button>' : ''}${bug?.status === 'succeeded' && bug.backupPath ? '<button class="history-action rollback" data-action="bug-rollback" data-job-id="'+escapeHtml(bug.id)+'">一键回滚</button>' : ''}${event.status === 'open' ? '<button class="history-action confirm" data-action="confirm">确认并停止提醒</button>' : ''}<button class="history-action delete" data-action="delete">删除</button>`;
+      return `<article class="history-item" data-event-id="${escapeHtml(event.id)}"><div class="history-top"><span class="badge level-${event.level}">LEVEL ${event.level}</span><span class="meta">${formatTime(event.createdAt)}</span></div><h2>${escapeHtml(event.title)}</h2><p>${escapeHtml(event.body)}</p><div class="history-tags"><button class="filter-tag" data-filter="source" data-value="${encodeURIComponent(event.source)}">${escapeHtml(event.source)}</button><span class="device-tag">发送设备：${escapeHtml(event.device || '未知设备')}</span><button class="filter-tag time" data-filter="time" data-value="${timeCategory(event.createdAt)}">${timeCategory(event.createdAt)}</button><span class="meta">${escapeHtml(event.eventKey)}</span></div>${bugPanel}<div class="history-top" style="margin-top:12px"><span>${trash ? `删除于 ${formatTime(event.deletedAt)}` : ''}</span><strong>${labels[event.status] || event.status}</strong></div><div class="history-actions">${actions}</div></article>`;
     }
 
     function renderHistory() {
       const events = (activeFilter ? allEvents.filter((event) => activeFilter.type === 'source' ? event.source === activeFilter.value : timeCategory(event.createdAt) === activeFilter.value) : allEvents).slice().sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-      $('historyTitle').textContent = activeFilter ? activeFilter.value : '通知记录';
+      $('historyTitle').textContent = viewingTrash ? '回收站' : activeFilter ? activeFilter.value : '通知记录';
       $('filterSummary').textContent = activeFilter ? `${activeFilter.type === 'source' ? '来源' : '时间'}分类 · ${events.length} 条通知` : '';
       $('filterSummary').classList.toggle('hidden', !activeFilter);
       $('clearFilter').classList.toggle('hidden', !activeFilter);
-      if (!events.length) { $('historyList').innerHTML = '<div class="panel empty">这个分类还没有通知。</div>'; return; }
-      if (activeFilter?.type !== 'source') { $('historyList').innerHTML = events.map(eventCard).join(''); return; }
+      if (!events.length) { $('historyList').innerHTML = `<div class="panel empty">${viewingTrash ? '回收站为空。' : '这个分类还没有通知。'}</div>`; return; }
+      if (viewingTrash || activeFilter?.type !== 'source') { $('historyList').innerHTML = events.map((event) => eventCard(event, viewingTrash)).join(''); return; }
       const groups = events.reduce((map, event) => map.set(timeCategory(event.createdAt), [...(map.get(timeCategory(event.createdAt)) || []), event]), new Map());
       $('historyList').innerHTML = [...groups].map(([name, rows], index) => `<details class="time-group" ${index === 0 ? 'open' : ''}><summary><span>${name}</span><small>${rows.length} 条</small></summary><div class="time-group-list">${rows.map(eventCard).join('')}</div></details>`).join('');
     }
 
-    async function loadHistory(resetFilter = false) {
+    async function loadHistory(resetFilter = false, poll = false) {
       const token = localStorage.getItem('notificationHubSession');
       if (!token) { show('login'); return; }
       try {
-        const data = await api('/v1/events?limit=1000', { headers:{ authorization:`Bearer ${token}` } });
+        const data = await api(`${viewingTrash ? '/v1/trash' : '/v1/events'}?limit=1000`, { headers:{ authorization:`Bearer ${token}` } });
+        if (!viewingTrash) {
+          const nextIds = new Set(data.events.map((event) => event.id));
+          if (knownEventIds && poll) data.events.filter((event) => !knownEventIds.has(event.id) && event.status === 'open').reverse().forEach((event) => event.level === 1 ? startCall(event) : event.level === 2 ? playLevelTwoSound() : null);
+          knownEventIds = nextIds;
+        }
         allEvents = data.events;
         if (resetFilter) activeFilter = null;
         show('history');
@@ -291,7 +340,8 @@
       } catch { localStorage.removeItem('notificationHubSession'); show('login'); }
     }
 
-    $('allNotifications').addEventListener('click', () => loadHistory(true));
+    $('allNotifications').addEventListener('click', () => { viewingTrash = false; loadHistory(true); });
+    $('trashButton').addEventListener('click', () => { viewingTrash = !viewingTrash; activeFilter = null; $('trashButton').textContent = viewingTrash ? '返回通知' : '回收站'; loadHistory(true); });
     $('clearFilter').addEventListener('click', () => { activeFilter = null; renderHistory(); });
     $('historyList').addEventListener('click', async (click) => {
       const tag = click.target.closest('[data-filter]');
@@ -304,8 +354,10 @@
       button.disabled = true;
       try {
         const action = button.dataset.action;
-        const path = action === 'bug-approve' ? `/v1/events/${encodeURIComponent(item.dataset.eventId)}/bug-fix/approve` : action === 'bug-rollback' ? `/v1/bug-fixes/${encodeURIComponent(button.dataset.jobId)}/rollback` : `/v1/events/${encodeURIComponent(item.dataset.eventId)}${action === 'confirm' ? '/confirm' : ''}`;
-        await api(path, { method: ['confirm','bug-approve','bug-rollback'].includes(action) ? 'POST' : 'DELETE', headers:{ authorization:`Bearer ${token}` } });
+        const eventId = encodeURIComponent(item.dataset.eventId);
+        const path = action === 'bug-approve' ? `/v1/events/${eventId}/bug-fix/approve` : action === 'bug-rollback' ? `/v1/bug-fixes/${encodeURIComponent(button.dataset.jobId)}/rollback` : action === 'restore' ? `/v1/trash/${eventId}/restore` : action === 'purge' ? `/v1/trash/${eventId}` : `/v1/events/${eventId}${action === 'confirm' ? '/confirm' : ''}`;
+        await api(path, { method: ['confirm','bug-approve','bug-rollback','restore'].includes(action) ? 'POST' : 'DELETE', headers:{ authorization:`Bearer ${token}` } });
+        if (callEventId === item.dataset.eventId) stopCall();
         await loadHistory();
       } catch (error) {
         button.disabled = false;
@@ -315,7 +367,7 @@
 
     $('logout').addEventListener('click', () => { localStorage.removeItem('notificationHubSession'); show('login'); });
     function escapeHtml(value) { const node = document.createElement('span'); node.textContent = value; return node.innerHTML; }
-    if (confirmationToken) loadConfirmation(); else loadHistory();
+    if (confirmationToken) loadConfirmation(); else { loadHistory(); setInterval(() => { if (!$('history').classList.contains('hidden') && !viewingTrash) loadHistory(false, true); }, 3000); }
   </script>
 </body>
 </html>
