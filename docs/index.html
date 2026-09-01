@@ -80,6 +80,7 @@
     .field input { min-width: 0; flex: 1; border: 1px solid var(--line); border-radius: 11px; padding: 13px 14px; background: #fff; }
     .field button, .subtle-button { border: 0; border-radius: 11px; padding: 12px 18px; color: white; background: var(--ink); cursor: pointer; font-weight: 700; }
     .error { color: var(--signal); margin-top: 12px; font-size: 13px; }
+    .sync-error { margin: 0 0 12px; padding: 10px 13px; color: var(--amber); background: var(--amber-soft); border: 1px solid #edc178; border-radius: 10px; font-size: 13px; }
     .history-head { display: flex; justify-content: space-between; gap: 18px; align-items: end; margin-bottom: 18px; }
     .history-head h1 { font-size: 34px; }
     .history-tools { display: flex; align-items: center; gap: 8px; }
@@ -183,6 +184,7 @@
 
     <section id="history" class="hidden">
       <div class="history-head"><div><p class="eyebrow">Delivery archive</p><h1 id="historyTitle">通知记录</h1><p class="filter-summary hidden" id="filterSummary"></p></div><div class="history-tools"><button class="filter-clear hidden" id="clearFilter">查看全部</button><button class="filter-clear" id="alertToggle" aria-pressed="true">提示：开</button><button class="filter-clear" id="trashButton">回收站</button><button class="subtle-button" id="logout">退出</button></div></div>
+      <div class="sync-error hidden" id="syncError">网络暂时异常，正在自动重试；登录状态已保留。</div>
       <div class="history-list" id="historyList"></div>
     </section>
   </main>
@@ -304,7 +306,7 @@
     $('loginForm').addEventListener('submit', async (event) => {
       event.preventDefault(); $('loginError').textContent = '';
       try { const data = await api('/v1/session', { method:'POST', body:JSON.stringify({ pin:$('pin').value }) }); localStorage.setItem('notificationHubSession', data.token); await loadHistory(); }
-      catch (error) { $('loginError').textContent = error.status === 429 ? '尝试次数过多，请15分钟后再试。' : '口令不正确。'; }
+      catch (error) { $('loginError').textContent = error.status === 429 ? '尝试次数过多，请15分钟后再试。' : error.status === 401 ? '口令不正确。' : '网络或服务暂时异常，请稍后重试。'; }
     });
 
     function eventCard(event, trash = false) {
@@ -338,10 +340,14 @@
           if (knownEventIds) nextIds.forEach((id) => knownEventIds.add(id)); else knownEventIds = nextIds;
         }
         allEvents = data.events;
+        $('syncError').classList.add('hidden');
         if (resetFilter) activeFilter = null;
         show('history');
         renderHistory();
-      } catch { localStorage.removeItem('notificationHubSession'); show('login'); }
+      } catch (error) {
+        if (error.status === 401) { localStorage.removeItem('notificationHubSession'); show('login'); return; }
+        show('history'); $('syncError').classList.remove('hidden');
+      }
     }
 
     $('allNotifications').addEventListener('click', () => { viewingTrash = false; loadHistory(true); });
