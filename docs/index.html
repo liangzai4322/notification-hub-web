@@ -204,6 +204,7 @@
     let viewingTrash = false;
     let knownEventIds = null;
     let audioContext = null;
+    let audioReady = false;
     let callMusicTimer = null;
     let callEventId = null;
     let realtimeController = null;
@@ -229,7 +230,8 @@
 
     function unlockAudio() {
       audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
-      if (audioContext.state === 'suspended') audioContext.resume();
+      const resumed = audioContext.state === 'suspended' ? audioContext.resume() : Promise.resolve();
+      resumed.then(() => { audioReady = audioContext.state === 'running'; renderAlertToggle(); }).catch(() => {});
     }
     document.addEventListener('pointerdown', unlockAudio, { passive:true });
 
@@ -249,10 +251,10 @@
       stopCall(); callEventId = event.id; $('callTitle').textContent = event.title; $('callSource').textContent = `来自 ${event.source}`; $('callOverlay').classList.remove('hidden');
       const music = () => { tone(440, .28, .055); tone(554, .28, .045, .32); tone(659, .35, .045, .64); };
       music(); callMusicTimer = setInterval(music, 1800);
-      if ('speechSynthesis' in window) { const voice = new SpeechSynthesisUtterance(`紧急通知，来自${event.source}。${event.title}`); voice.lang = 'zh-CN'; voice.rate = .9; speechSynthesis.speak(voice); }
+      if ('speechSynthesis' in window) { const voice = new SpeechSynthesisUtterance(`紧急通知，来自${event.source}。${event.title}`); voice.lang = 'zh-CN'; voice.rate = .9; window.speechSynthesis.resume?.(); window.speechSynthesis.speak(voice); }
     }
     $('hangup').addEventListener('click', stopCall);
-    function renderAlertToggle() { $('alertToggle').textContent = `提示：${alertEnabled ? '开' : '关'}`; $('alertToggle').setAttribute('aria-pressed', String(alertEnabled)); }
+    function renderAlertToggle() { $('alertToggle').textContent = `提示：${alertEnabled ? '开' : '关'}${alertEnabled && !audioReady ? ' · 点此启用声音' : ''}`; $('alertToggle').setAttribute('aria-pressed', String(alertEnabled)); }
     $('alertToggle').addEventListener('click', () => { alertEnabled = !alertEnabled; localStorage.setItem('notificationHubAlerts', alertEnabled ? 'on' : 'off'); if (!alertEnabled) stopCall(); else unlockAudio(); renderAlertToggle(); });
     renderAlertToggle();
 
