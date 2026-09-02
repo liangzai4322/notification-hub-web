@@ -216,7 +216,7 @@
     let alertEnabled = localStorage.getItem('notificationHubAlerts') !== 'off';
     const $ = (id) => document.getElementById(id);
     const labels = { open: '等待确认', confirmed: '已确认收到', lost: '通知遗失', informational: '无需确认' };
-    const channelLabels = { wecom: '企业微信', email: '邮件', serverchan: 'Server酱' };
+    const channelLabels = { wecom: '企业微信', weixin: '微信机器人', email: '邮件', serverchan: 'Server酱' };
     const statusLabels = { sent: '已发送', pending: '待发送', sending: '发送中', failed: '发送失败', cancelled: '已停止' };
 
     function show(id) { ['loading','notice','login','history'].forEach((name) => $(name).classList.toggle('hidden', name !== id)); }
