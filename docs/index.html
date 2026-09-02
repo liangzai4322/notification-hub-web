@@ -206,6 +206,9 @@
     let audioContext = null;
     let callMusicTimer = null;
     let callEventId = null;
+    let realtimeController = null;
+    let realtimeRetryTimer = null;
+    let realtimeBackoff = 1000;
     let alertEnabled = localStorage.getItem('notificationHubAlerts') !== 'off';
     const $ = (id) => document.getElementById(id);
     const labels = { open: '等待确认', confirmed: '已确认收到', lost: '通知遗失', informational: '无需确认' };
@@ -350,8 +353,51 @@
       }
     }
 
-    $('allNotifications').addEventListener('click', () => { viewingTrash = false; loadHistory(true); });
-    $('trashButton').addEventListener('click', () => { viewingTrash = !viewingTrash; activeFilter = null; $('trashButton').textContent = viewingTrash ? '返回通知' : '回收站'; loadHistory(true); });
+    function stopRealtime() {
+      clearTimeout(realtimeRetryTimer); realtimeRetryTimer = null;
+      realtimeController?.abort(); realtimeController = null;
+    }
+    function scheduleRealtimeRetry() {
+      if (viewingTrash || !localStorage.getItem('notificationHubSession') || realtimeRetryTimer) return;
+      realtimeRetryTimer = setTimeout(() => { realtimeRetryTimer = null; connectRealtime(); }, realtimeBackoff);
+      realtimeBackoff = Math.min(realtimeBackoff * 2, 30000);
+    }
+    async function connectRealtime() {
+      if (viewingTrash || realtimeController) return;
+      const token = localStorage.getItem('notificationHubSession');
+      if (!token) return;
+      const controller = new AbortController(); realtimeController = controller;
+      try {
+        const response = await fetch(`${API}/v1/stream`, { headers: { accept:'text/event-stream', authorization:`Bearer ${token}` }, cache:'no-store', signal:controller.signal });
+        if (!response.ok) throw Object.assign(new Error('STREAM_FAILED'), { status: response.status });
+        realtimeBackoff = 1000; $('syncError').classList.add('hidden');
+        const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
+        while (!controller.signal.aborted) {
+          const chunk = await reader.read(); if (chunk.done) break;
+          buffer += decoder.decode(chunk.value, { stream:true });
+          let boundary;
+          while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+            const message = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
+            if (message.split('\n').includes('event: refresh')) await loadHistory(false, true);
+          }
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        if (error.status === 401) { localStorage.removeItem('notificationHubSession'); stopRealtime(); show('login'); return; }
+        $('syncError').classList.remove('hidden');
+      } finally {
+        if (realtimeController === controller) realtimeController = null;
+        if (!controller.signal.aborted) scheduleRealtimeRetry();
+      }
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && !$('history').classList.contains('hidden') && !viewingTrash) {
+        loadHistory(false, true); stopRealtime(); realtimeBackoff = 1000; connectRealtime();
+      }
+    });
+
+    $('allNotifications').addEventListener('click', () => { viewingTrash = false; loadHistory(true); connectRealtime(); });
+    $('trashButton').addEventListener('click', () => { viewingTrash = !viewingTrash; activeFilter = null; $('trashButton').textContent = viewingTrash ? '返回通知' : '回收站'; if (viewingTrash) stopRealtime(); loadHistory(true); if (!viewingTrash) connectRealtime(); });
     $('clearFilter').addEventListener('click', () => { activeFilter = null; renderHistory(); });
     $('historyList').addEventListener('click', async (click) => {
       const tag = click.target.closest('[data-filter]');
@@ -375,9 +421,9 @@
       }
     });
 
-    $('logout').addEventListener('click', () => { localStorage.removeItem('notificationHubSession'); show('login'); });
+    $('logout').addEventListener('click', () => { stopRealtime(); localStorage.removeItem('notificationHubSession'); show('login'); });
     function escapeHtml(value) { const node = document.createElement('span'); node.textContent = value; return node.innerHTML; }
-    if (confirmationToken) loadConfirmation(); else { loadHistory(); setInterval(() => { if (!$('history').classList.contains('hidden') && !viewingTrash) loadHistory(false, true); }, 3000); }
+    if (confirmationToken) loadConfirmation(); else loadHistory().then(connectRealtime);
   </script>
 </body>
 </html>
