@@ -40,7 +40,12 @@
     .beacon { width: 14px; height: 38px; background: var(--signal); border-radius: 3px; box-shadow: 8px 0 0 #f2b3aa; }
     .brand strong { display: block; font: 800 25px/1 "Arial Narrow", "Microsoft YaHei", sans-serif; letter-spacing: -.04em; }
     .brand small { color: var(--muted); font: 11px/1.4 Consolas, monospace; letter-spacing: .12em; text-transform: uppercase; }
+    .masthead-tools { display: flex; align-items: center; gap: 12px; }
     .clock { color: var(--muted); font: 12px Consolas, monospace; }
+    .sync-link { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 999px; padding: 8px 13px; color: var(--blue); background: var(--panel); text-decoration: none; font-size: 13px; font-weight: 750; box-shadow: 0 5px 14px rgba(33,44,61,.06); transition: transform .16s ease, border-color .16s ease; }
+    .sync-link::after { content: '↗'; font: 700 12px Consolas, monospace; }
+    .sync-link:hover { transform: translateY(-1px); border-color: #a9bddc; }
+    .sync-link:focus-visible { outline: 3px solid rgba(36, 89, 169, .28); outline-offset: 2px; }
     .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
     .panel-head { padding: 25px 28px 20px; border-bottom: 1px solid var(--line); }
     .eyebrow { margin: 0 0 7px; color: var(--muted); font: 700 11px Consolas, monospace; letter-spacing: .13em; text-transform: uppercase; }
@@ -150,7 +155,10 @@
   <main class="shell">
     <header class="masthead">
       <button class="brand" id="allNotifications" type="button" aria-label="查看全部通知"><span class="beacon" aria-hidden="true"></span><span><strong>通知中枢</strong><small>点击查看全部通知</small></span></button>
-      <time class="clock" id="clock"></time>
+      <div class="masthead-tools">
+        <a class="sync-link" href="https://liangzai4322.github.io/simple-netdisk-flomo/">无痕同步</a>
+        <time class="clock" id="clock"></time>
+      </div>
     </header>
 
     <section id="loading" class="panel empty">正在读取通知状态…</section>
