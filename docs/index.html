@@ -88,7 +88,7 @@
     .sync-error { margin: 0 0 12px; padding: 10px 13px; color: var(--amber); background: var(--amber-soft); border: 1px solid #edc178; border-radius: 10px; font-size: 13px; }
     .history-head { display: flex; justify-content: space-between; gap: 18px; align-items: end; margin-bottom: 18px; }
     .history-head h1 { font-size: 34px; }
-    .history-tools { display: flex; align-items: center; gap: 8px; }
+    .history-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
     .filter-summary { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
     .filter-clear { border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px; background: #fff; color: var(--ink); cursor: pointer; font-weight: 700; }
     .history-expand { display: block; margin: 18px auto 0; border: 1px solid var(--line); border-radius: 999px; padding: 10px 20px; background: #fff; color: var(--ink); cursor: pointer; font-weight: 700; }
@@ -192,7 +192,7 @@
     </section>
 
     <section id="history" class="hidden">
-      <div class="history-head"><div><p class="eyebrow">Delivery archive</p><h1 id="historyTitle">通知记录</h1><p class="filter-summary hidden" id="filterSummary"></p></div><div class="history-tools"><button class="filter-clear hidden" id="clearFilter">查看全部</button><button class="filter-clear" id="alertToggle" aria-pressed="true">提示：开</button><button class="filter-clear" id="trashButton">回收站</button><button class="subtle-button" id="logout">退出</button></div></div>
+      <div class="history-head"><div><p class="eyebrow">Delivery archive</p><h1 id="historyTitle">通知记录</h1><p class="filter-summary hidden" id="filterSummary"></p></div><div class="history-tools"><button class="filter-clear hidden" id="clearFilter">查看全部</button><button class="filter-clear" id="refreshHistory" type="button">刷新</button><button class="filter-clear" id="alertToggle" aria-pressed="true">提示：开</button><button class="filter-clear" id="trashButton">回收站</button><button class="subtle-button" id="logout">退出</button></div></div>
       <div class="sync-error hidden" id="syncError">网络暂时异常，正在自动重试；登录状态已保留。</div>
       <div class="history-list" id="historyList"></div>
       <button class="history-expand hidden" id="expandHistory" type="button">展开更多</button>
@@ -419,6 +419,13 @@
     $('trashButton').addEventListener('click', () => { viewingTrash = !viewingTrash; activeFilter = null; historyExpanded = false; $('trashButton').textContent = viewingTrash ? '返回通知' : '回收站'; if (viewingTrash) stopRealtime(); loadHistory(true); if (!viewingTrash) connectRealtime(); });
     $('clearFilter').addEventListener('click', () => { activeFilter = null; historyExpanded = false; loadHistory(); });
     $('expandHistory').addEventListener('click', () => { historyExpanded = !historyExpanded; loadHistory(); });
+    $('refreshHistory').addEventListener('click', async () => {
+      const button = $('refreshHistory');
+      if (button.disabled) return;
+      button.disabled = true; button.textContent = '刷新中…';
+      try { await loadHistory(); }
+      finally { button.disabled = false; button.textContent = '刷新'; }
+    });
     $('historyList').addEventListener('click', async (click) => {
       const tag = click.target.closest('[data-filter]');
       if (tag) { activeFilter = { type: tag.dataset.filter, value: tag.dataset.filter === 'source' ? decodeURIComponent(tag.dataset.value) : tag.dataset.value }; await loadHistory(); return; }
