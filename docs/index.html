@@ -333,8 +333,10 @@
       return `<article class="history-item" data-event-id="${escapeHtml(event.id)}"><div class="history-top"><span class="badge level-${event.level}">LEVEL ${event.level}</span><span class="meta">${formatTime(event.createdAt)}</span></div><h2>${escapeHtml(event.title)}</h2><p>${escapeHtml(event.body)}</p><div class="history-tags"><button class="filter-tag" data-filter="source" data-value="${encodeURIComponent(event.source)}">${escapeHtml(event.source)}</button><span class="device-tag">发送设备：${escapeHtml(event.device || '未知设备')}</span><button class="filter-tag time" data-filter="time" data-value="${timeCategory(event.createdAt)}">${timeCategory(event.createdAt)}</button><span class="meta">${escapeHtml(event.eventKey)}</span></div>${bugPanel}<div class="history-top" style="margin-top:12px"><span>${trash ? `删除于 ${formatTime(event.deletedAt)}` : ''}</span><strong>${labels[event.status] || event.status}</strong></div><div class="history-actions">${actions}</div></article>`;
     }
 
+    function needsAttention(event) { return event.bugFix?.status === 'pending_approval' || event.status === 'open'; }
+
     function renderHistory() {
-      const events = (activeFilter ? allEvents.filter((event) => activeFilter.type === 'source' ? event.source === activeFilter.value : timeCategory(event.createdAt) === activeFilter.value) : allEvents).slice().sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+      const events = (activeFilter ? allEvents.filter((event) => activeFilter.type === 'source' ? event.source === activeFilter.value : timeCategory(event.createdAt) === activeFilter.value) : allEvents).slice().sort((a, b) => (viewingTrash ? 0 : Number(needsAttention(b)) - Number(needsAttention(a))) || Date.parse(b.createdAt) - Date.parse(a.createdAt));
       $('historyTitle').textContent = viewingTrash ? '回收站' : activeFilter ? activeFilter.value : '通知记录';
       $('filterSummary').textContent = activeFilter ? `${activeFilter.type === 'source' ? '来源' : '时间'}分类 · ${events.length} 条通知` : '';
       $('filterSummary').classList.toggle('hidden', !activeFilter);
@@ -343,8 +345,9 @@
       $('expandHistory').textContent = historyExpanded ? '收起，仅显示8条' : '展开更多';
       if (!events.length) { $('historyList').innerHTML = `<div class="panel empty">${viewingTrash ? '回收站为空。' : '这个分类还没有通知。'}</div>`; return; }
       if (viewingTrash || activeFilter?.type !== 'source') { $('historyList').innerHTML = events.map((event) => eventCard(event, viewingTrash)).join(''); return; }
-      const groups = events.reduce((map, event) => map.set(timeCategory(event.createdAt), [...(map.get(timeCategory(event.createdAt)) || []), event]), new Map());
-      $('historyList').innerHTML = [...groups].map(([name, rows], index) => `<details class="time-group" ${index === 0 ? 'open' : ''}><summary><span>${name}</span><small>${rows.length} 条</small></summary><div class="time-group-list">${rows.map(eventCard).join('')}</div></details>`).join('');
+      const pending = events.filter(needsAttention);
+      const groups = events.filter((event) => !needsAttention(event)).reduce((map, event) => map.set(timeCategory(event.createdAt), [...(map.get(timeCategory(event.createdAt)) || []), event]), new Map());
+      $('historyList').innerHTML = pending.map((event) => eventCard(event)).join('') + [...groups].map(([name, rows], index) => `<details class="time-group" ${index === 0 && !pending.length ? 'open' : ''}><summary><span>${name}</span><small>${rows.length} 条</small></summary><div class="time-group-list">${rows.map((event) => eventCard(event)).join('')}</div></details>`).join('');
     }
 
     async function loadHistory(resetFilter = false, poll = false) {
@@ -352,7 +355,7 @@
       if (!token) { show('login'); return; }
       try {
         const limit = viewingTrash || activeFilter || historyExpanded ? 500 : 8;
-        const data = await api(`${viewingTrash ? '/v1/trash' : '/v1/events'}?limit=${limit}`, { headers:{ authorization:`Bearer ${token}` } });
+        const data = await api(`${viewingTrash ? '/v1/trash' : '/v1/events'}?limit=${limit}${viewingTrash ? '' : '&order=attention'}`, { headers:{ authorization:`Bearer ${token}` } });
         if (!viewingTrash) {
           const nextIds = new Set(data.events.map((event) => event.id));
           if (knownEventIds && poll && alertEnabled) data.events.filter((event) => !knownEventIds.has(event.id) && event.status === 'open').reverse().forEach((event) => event.level === 1 ? startCall(event) : event.level === 2 ? playLevelTwoSound() : null);
@@ -432,6 +435,7 @@
         await api(path, { method: ['confirm','bug-approve','bug-rollback','restore'].includes(action) ? 'POST' : 'DELETE', headers:{ authorization:`Bearer ${token}` } });
         if (callEventId === item.dataset.eventId) stopCall();
         await loadHistory();
+        if (action === 'bug-approve' || action === 'confirm') $('historyList').scrollIntoView({ block:'start', behavior:'smooth' });
       } catch (error) {
         button.disabled = false;
         button.textContent = error.status === 401 ? '请重新登录' : '操作失败，重试';
@@ -444,3 +448,4 @@
   </script>
 </body>
 </html>
+
