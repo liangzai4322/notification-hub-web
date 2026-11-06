@@ -253,12 +253,14 @@
       oscillator.frequency.value = frequency; oscillator.type = 'sine'; gain.gain.setValueAtTime(volume, start); gain.gain.exponentialRampToValueAtTime(.001, start + duration);
       oscillator.connect(gain).connect(audioContext.destination); oscillator.start(start); oscillator.stop(start + duration);
     }
-    function playLevelTwoSound() { tone(740, .16); tone(980, .2, .07, .18); }
+    function canAlert(event) { return event.dailyOnly === false; }
+    function playLevelTwoSound(event) { if (!canAlert(event)) return; tone(740, .16); tone(980, .2, .07, .18); }
     function stopCall() {
       clearInterval(callMusicTimer); callMusicTimer = null; callEventId = null;
       window.speechSynthesis?.cancel(); $('callOverlay').classList.add('hidden');
     }
     function startCall(event) {
+      if (!canAlert(event)) return;
       stopCall(); callEventId = event.id; $('callTitle').textContent = event.title; $('callSource').textContent = `来自 ${event.source}`; $('callOverlay').classList.remove('hidden');
       const music = () => { tone(440, .28, .055); tone(554, .28, .045, .32); tone(659, .35, .045, .64); };
       music(); callMusicTimer = setInterval(music, 1800);
@@ -330,7 +332,7 @@
       const bugLabels = { pending_approval:'等待审批', approved:'已批准，等待原电脑上线', running:'正在自动修复', succeeded:'修复成功', failed:'修复失败', timed_out:'执行超时', expired:'审批已过期', rollback_requested:'等待原电脑回滚', rolled_back:'已回滚', rollback_failed:'回滚失败' };
       const bugPanel = bug ? `<div class="bug-fix"><strong>Bug修复申请 · ${bugLabels[bug.status] || bug.status}</strong><p>${escapeHtml(bug.plan)}</p><div class="bug-files">影响文件：${bug.impactFiles.length ? bug.impactFiles.map(escapeHtml).join('、') : '由执行任务确认'}</div>${bug.resultSummary ? `<div class="bug-result">${escapeHtml(bug.resultSummary)}</div>` : ''}${bug.taskUrl ? `<a class="bug-link" href="${escapeHtml(bug.taskUrl)}">查看Codex任务</a>` : ''}${bug.prUrl ? ` · <a class="bug-link" href="${escapeHtml(bug.prUrl)}" target="_blank" rel="noopener">查看PR</a>` : ''}</div>` : '';
       const actions = trash ? '<button class="history-action restore" data-action="restore">恢复</button><button class="history-action delete" data-action="purge">彻底删除</button>' : `${bug?.status === 'pending_approval' ? '<button class="history-action approve" data-action="bug-approve">同意自动修复</button>' : ''}${bug?.status === 'succeeded' && bug.backupPath ? '<button class="history-action rollback" data-action="bug-rollback" data-job-id="'+escapeHtml(bug.id)+'">一键回滚</button>' : ''}${event.status === 'open' ? '<button class="history-action confirm" data-action="confirm">确认并停止提醒</button>' : ''}<button class="history-action delete" data-action="delete">删除</button>`;
-      return `<article class="history-item" data-event-id="${escapeHtml(event.id)}"><div class="history-top"><span class="badge level-${event.level}">LEVEL ${event.level}</span><span class="meta">${formatTime(event.createdAt)}</span></div><h2>${escapeHtml(event.title)}</h2><p>${escapeHtml(event.body)}</p><div class="history-tags"><button class="filter-tag" data-filter="source" data-value="${encodeURIComponent(event.source)}">${escapeHtml(event.source)}</button><span class="device-tag">发送设备：${escapeHtml(event.device || '未知设备')}</span><button class="filter-tag time" data-filter="time" data-value="${timeCategory(event.createdAt)}">${timeCategory(event.createdAt)}</button><span class="meta">${escapeHtml(event.eventKey)}</span></div>${bugPanel}<div class="history-top" style="margin-top:12px"><span>${trash ? `删除于 ${formatTime(event.deletedAt)}` : ''}</span><strong>${labels[event.status] || event.status}</strong></div><div class="history-actions">${actions}</div></article>`;
+      return `<article class="history-item" data-event-id="${escapeHtml(event.id)}"><div class="history-top"><span class="badge level-${event.level}">LEVEL ${event.level}</span>${event.dailyOnly === true ? '<span class="meta">日报项</span>' : ''}<span class="meta">${formatTime(event.createdAt)}</span></div><h2>${escapeHtml(event.title)}</h2><p>${escapeHtml(event.body)}</p><div class="history-tags"><button class="filter-tag" data-filter="source" data-value="${encodeURIComponent(event.source)}">${escapeHtml(event.source)}</button><span class="device-tag">发送设备：${escapeHtml(event.device || '未知设备')}</span><button class="filter-tag time" data-filter="time" data-value="${timeCategory(event.createdAt)}">${timeCategory(event.createdAt)}</button><span class="meta">${escapeHtml(event.eventKey)}</span></div>${bugPanel}<div class="history-top" style="margin-top:12px"><span>${trash ? `删除于 ${formatTime(event.deletedAt)}` : ''}</span><strong>${labels[event.status] || event.status}</strong></div><div class="history-actions">${actions}</div></article>`;
     }
 
     function needsAttention(event) { return event.bugFix?.status === 'pending_approval' || event.status === 'open'; }
@@ -358,7 +360,7 @@
         const data = await api(`${viewingTrash ? '/v1/trash' : '/v1/events'}?limit=${limit}${viewingTrash ? '' : '&order=attention'}`, { headers:{ authorization:`Bearer ${token}` } });
         if (!viewingTrash) {
           const nextIds = new Set(data.events.map((event) => event.id));
-          if (knownEventIds && poll && alertEnabled) data.events.filter((event) => !knownEventIds.has(event.id) && event.status === 'open').reverse().forEach((event) => event.level === 1 ? startCall(event) : event.level === 2 ? playLevelTwoSound() : null);
+          if (knownEventIds && poll && alertEnabled) data.events.filter((event) => !knownEventIds.has(event.id) && event.status === 'open' && canAlert(event)).reverse().forEach((event) => event.level === 1 ? startCall(event) : event.level === 2 ? playLevelTwoSound(event) : null);
           if (knownEventIds) nextIds.forEach((id) => knownEventIds.add(id)); else knownEventIds = nextIds;
         }
         allEvents = data.events;
