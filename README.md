@@ -1,2 +1,19 @@
-# notification-hub-web
-Daily review cognitive cards deployed by Codex.
+# 通知中枢网页
+
+[打开通知中枢](https://liangzai4322.github.io/notification-hub-web/)。这是通知记录、确认和修复审批的页面。页面由 GitHub Pages 提供，通知和审批数据来自 `https://liangzai666.com/notify/api`。
+
+## 使用通知列表
+
+- 待同意和待确认的通知排在最前面，每组按创建时间从新到旧。点「同意」或「确认」成功后，页面会重新加载列表并回到列表顶部。
+- 点列表顶部的「刷新」即可更新内容。来源或时间筛选、「展开更多」和回收站视图会保留。按钮显示「刷新中…」时，等待这次请求完成即可。
+- 普通列表默认展示 8 条。点「展开更多」可以查看更多记录。来源分类把待处理项放在前面，其他记录按时间分组。
+
+## 开发和验证
+
+网页入口在 [`docs/index.html`](docs/index.html)，发布源为 `main` 分支的 `/docs`。在项目根目录运行已有回归检查：
+
+```sh
+node --test tests/attention-order.test.cjs
+```
+
+用隔离测试数据检查刷新、审批后的排序和手机工具栏。发布或接手前查阅 [交接记录](HANDOFF.MD)。

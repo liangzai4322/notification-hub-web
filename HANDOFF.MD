@@ -1,17 +1,13 @@
-# Notification Hub Web
+# 通知中枢网页交接
 
-## 2026-11-04 列表刷新按钮
+## 2026-11-04 列表排序和页内刷新
 
-- 列表顶部的“刷新”按钮只调用现有 `loadHistory()`，保留当前来源/时间筛选、展开状态和回收站视图，不重新加载网页或重建实时连接。
-- 请求期间显示“刷新中…”并禁用按钮，完成后恢复；失败沿用现有错误提示和登录状态处理。首页仍请求 8 条，分类/展开/回收站仍使用原 500 条上限。
-- 顶部按钮容器允许换行，避免新增按钮导致手机窄屏横向溢出。
+- `needsAttention()` 把 `event.status === 'open'` 或 `bugFix.status === 'pending_approval'` 的记录归为待处理。各组按 `createdAt` 倒序。来源分类把待处理卡片放在时间折叠组之前，回收站独立读取。
+- 首页请求 `GET /v1/events?limit=8&order=attention`。后端在 `LIMIT` 前排序，较早的待处理项才不会被 8 条上限挡掉。展开和筛选仍读取至多 500 条，再由页面筛选。
+- `#refreshHistory` 调用 `loadHistory()`。请求期间禁用按钮并显示「刷新中…」，成功或失败后恢复。手动刷新保留当前视图，审批或确认成功才滚动到列表顶部。
 
-## 2026-11-04 待处理排序
+## 发布与复核
 
-- 正式页面为 `https://liangzai4322.github.io/notification-hub-web/`，源文件为 `docs/index.html`，API 为 `https://liangzai666.com/notify/api`。
-- 普通列表、展开列表和分类列表统一将 `bugFix.status=pending_approval` 或 `event.status=open` 的通知置顶，同组按 `createdAt` 从新到旧。已同意、已确认和无需确认的通知排在后面。
-- 首页默认只请求 8 条，必须请求 `GET /v1/events?limit=8&order=attention`，让服务端先排序再截断。仅对最新 8 条做前端排序会遗漏更早的待处理通知；不要改成每次刷新全量加载 500 条。
-- 来源分类中待处理卡片先显示，其他记录仍按时间折叠，避免时间分组把待处理项压到已处理项下面。
-- 点同意或确认成功后重新加载并滚动到列表开头；实时刷新本身不强制滚动。回收站不使用待处理优先。
-- 后端代码位于 `/opt/notification-hub`，其全局调用默认仍按时间倒序；只有显式 `order=attention` 的列表请求使用新排序，不更改审批或发送状态。
-- 所有交互验证使用隔离假数据，不点击或同意真实生产工单。
+- [README](README.md) 有页面入口和回归命令。[后端 API 说明](https://github.com/liangzai4322/notification-hub/blob/main/docs/api.md) 记录 `order=attention` 的调用约定。调整排序契约时先验证 API，再发布页面。
+- 2026-11-04 的排序提交为 `deeaf2ae8e4a68b8b0123b2022975bd83a7c7e21`，刷新提交为 `dc75265b56df19f28d5101ea5b4a7de8d8c6e82b`。回归覆盖桌面、390px 移动端、请求失败后重试及视图保留。
+- GitHub 提交完成后，Pages 构建期间仍可能返回旧页面。等目标构建完成，再比对线上页面与预期 `docs/index.html`。刷新已打开的旧页面一次，即可载入新版按钮。
